@@ -1,0 +1,33 @@
+---
+title: "MIMS"
+author: "Tiff Stephens"
+date: "4/7/2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr); library(tidyr); library(plyr); library(reshape2); library(lubridate); library(ggplot2); library(DT); library(leaflet); library(htmlwidgets); library(htmltools); library(shiny); library(mapview); library(sp); library(sf); library(knitr); library(cowplot); library(ggpmisc)
+
+theme_set(theme_classic())
+theme_set(theme_cowplot(font_size=12)) 
+```
+
+```{r}
+df.sedpit <- read.csv('/Users/tiff/Desktop/R Studio/APECS-master-repos/ALL_DATA/seagrass_seaotter_pit_sediment_2017_CLEAN.csv', row.names=1)
+```
+
+
+
+
+
+
+
+
+
+
+
+
