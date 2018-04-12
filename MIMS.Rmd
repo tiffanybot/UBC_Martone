@@ -10,16 +10,177 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-library(dplyr); library(tidyr); library(plyr); library(reshape2); library(lubridate); library(ggplot2); library(DT); library(leaflet); library(htmlwidgets); library(htmltools); library(shiny); library(mapview); library(sp); library(sf); library(knitr); library(cowplot); library(ggpmisc)
+library(dplyr); library(tidyr); library(plyr); library(reshape2); library(lubridate); library(ggplot2); library(DT); library(leaflet); library(htmlwidgets); library(htmltools); library(shiny); library(mapview); library(sp); library(sf); library(knitr); library(cowplot); library(ggpmisc); library(broom)
 
 theme_set(theme_classic())
 theme_set(theme_cowplot(font_size=12)) 
 ```
 
 ```{r}
-df.sedpit <- read.csv('/Users/tiff/Desktop/R Studio/APECS-master-repos/ALL_DATA/seagrass_seaotter_pit_sediment_2017_CLEAN.csv', row.names=1)
+# import dataframe(s)
+df.all <- read.csv('/Users/tiff/Desktop/R Studio/UBC_Martone/MIMS_runs.csv', stringsAsFactors = FALSE, header = TRUE)
+
+df.all <- within(df.all, rm(number))
 ```
 
+
+```{r}
+str(df.all)
+
+
+# calculate the slopes for each subset of within the data
+# this results in multiple data frames
+df.co2 <- df.all %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(CO2_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(df.co2)[which(names(df.co2) == "estimate")] <- "CO2"
+
+
+df.hco3 <- df.all %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(HCO3_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(df.hco3)[which(names(df.hco3) == "estimate")] <- "HCO3"
+
+
+df.o2 <- df.all %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(O2_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(df.o2)[which(names(df.o2) == "estimate")] <- "O2"
+
+
+df.co2_12 <- df.all %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(CO2_12_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(df.co2_12)[which(names(df.co2_12) == "estimate")] <- "CO2_12"
+
+
+df.co2_13 <- df.all %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(CO2_13_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(df.co2_13)[which(names(df.co2_13) == "estimate")] <- "CO2_13"
+
+
+
+# select only the slope data 
+df.co2 <- within(df.co2, rm(term, std.error, statistic, p.value))
+df.hco3 <- within(df.hco3, rm(term, std.error, statistic, p.value))
+df.o2 <- within(df.o2, rm(term, std.error, statistic, p.value))
+df.co2_12 <- within(df.co2_12, rm(term, std.error, statistic, p.value))
+df.co2_13 <- within(df.co2_13, rm(term, std.error, statistic, p.value))
+
+
+# join all dfs back into one
+df.mims <- left_join(df.o2, df.hco3, by = c("genus","metabolism","treatment","rep","run1","run2"))
+df.mims <- left_join(df.mims, df.co2, by = c("genus","metabolism","treatment","rep","run1","run2"))
+df.mims <- left_join(df.mims, df.co2_12, by = c("genus","metabolism","treatment","rep","run1","run2"))
+df.mims <- left_join(df.mims, df.co2_13, by = c("genus","metabolism","treatment","rep","run1","run2"))
+```
+
+
+```{r}
+df.dark <- df.mims[-which(df.mims$run2 == "Light"), ]
+df.light <- df.mims[-which(df.mims$run2 == "Dark"), ]
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+df.mims_avg <- df.all %>%
+  group_by(genus, metabolism, light, run) %>%
+    do(tidy(lm(carbondioxide_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+
+colnames(df.co2)[which(names(df.co2) == "estimate")] <- "co2"
+
+```
+
+
+
+
+
+
+
+
+
+
+Scatter plots
+```{r}
+df.mims$genus = factor(df.mims$genus, levels=c("Hymenena", "Opuntiella", "Plocamium", "Schizymenia", "Odonthalia", "Osmundea", "Pyropia", "Rhodymenia"))
+
+
+
+my.formula <- y ~ x # defined formula (linear regression) for stats labels on plot
+
+plot = ggplot(df.mims, aes(genus, HCO3, color = gas_id)) +
+  geom_point(size = 2, color = "White") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  #geom_jitter(alpha = 0.35, width = 0.3) +
+  geom_smooth(method=lm, formula=y~x, se=FALSE, fullrange=FALSE) +
+  #xlab("Mean sediment class (site)\n")+ylab("\nlog(Epiphyte biomass (g per plant, DW))") +
+  theme(legend.position="none") +
+  stat_poly_eq(formula = my.formula, 
+               aes(label = paste(..rr.label.., sep = "~~~")), 
+               label.x.npc = 'right', label.y.npc = 'top', size = 4, parse = TRUE) +
+  stat_fit_glance(method = 'lm', method.args = list(formula = my.formula), geom = 'text',
+                  aes(label = paste("P-value = ", signif(..p.value.., digits = 3), sep = "")),
+                  label.x.npc = 'left', label.y.npc = 'top', size = 4) +
+  facet_wrap(run2~treatment)
+plot(plot)
+```
+
+
+Barplots
+```{r}
+df.mims$genus = factor(df.mims$genus, levels=c("Hymenena", "Opuntiella", "Plocamium", "Schizymenia", "Odonthalia", "Osmundea", "Pyropia", "Rhodymenia"))
+
+
+p03=ggplot(df.o2, aes(genus, O2, fill = run2))
+p03+stat_summary(fun.y=mean, geom="bar", position="dodge")+
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.90), width=0.2)+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  #labs(y="Stipe RGR (d -1)", title="Stipe Elongation")+
+  facet_wrap(~treatment)
+
+
+stat = lm(CO2 ~ metabolism*treatment*run2, data=df.co2)
+anova(stat)
+
+TukeyHSD(aov(stat), conf=0.95)
+```
+
+
+Boxplots
+```{r}
+p04 <- ggplot(df.mims, aes(light, hco3, color = run2)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.3, width = 0.15) +
+  #theme(legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~genus)
+plot(p04)
+```
 
 
 

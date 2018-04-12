@@ -1,0 +1,212 @@
+---
+title: "MIMS_stacked"
+author: "Tiff Stephens"
+date: "4/9/2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr); library(tidyr); library(plyr); library(reshape2); library(lubridate); library(ggplot2); library(DT); library(leaflet); library(htmlwidgets); library(htmltools); library(shiny); library(mapview); library(sp); library(sf); library(knitr); library(cowplot); library(ggpmisc); library(broom)
+
+theme_set(theme_classic())
+theme_set(theme_cowplot(font_size=12)) 
+```
+
+\mimscleaning
+```{r}
+# import dataframe(s)
+df.runs_stack <- read.csv('/Users/tiff/Desktop/R Studio/UBC_Martone/MIMS_runs_stacked.csv', stringsAsFactors = FALSE, header = TRUE)
+
+df.runs_stack <- within(df.runs_stack, rm(number))
+
+
+# calculate the slopes for each subset of within the data
+# this results in multiple data frames
+df.gas <- df.runs_stack %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2, gas_id) %>%
+  do(tidy(lm(gas_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(df.gas)[which(names(df.gas) == "estimate")] <- "gas_slope"
+
+df.ph <- df.runs_stack %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2, gas_id) %>%
+  do(tidy(lm(pH ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(df.ph)[which(names(df.ph) == "estimate")] <- "ph_slope"
+
+
+
+
+# join mims dfs back into one
+df.mims_stack <- left_join(df.gas, df.ph, by = c("genus","metabolism","treatment","rep","run1","run2", "gas_id"))
+
+
+# remove uneccesary columns 
+df.mims_stack <- within(df.mims_stack, rm(term.x, std.error.x, statistic.x, p.value.x, term.y, std.error.y, statistic.y, p.value.y))
+
+
+
+
+
+##### giving each gas its own column
+# use dcast to expand the 'gas_id' column, so that each gas has it's own column for each variable
+df.mims_stack <- within(df.mims_stack, rm(ph_slope))
+
+df.mims <- dcast(df.mims_stack, genus + treatment + metabolism + rep + run1 + run2 ~ gas_id, na.rm = TRUE) # dcast spread
+```
+
+
+\enzymescleaning
+```{r}
+# import enzyme df
+df.ca_stack <- read.csv('/Users/tiff/Desktop/R Studio/UBC_Martone/MIMS_enzymes.csv', stringsAsFactors = FALSE, header = TRUE)
+
+
+# the dataset has the values for the samples and for blanks that were run in parallel with the samples. The sample values need to be corrected using the blanks
+
+# Total and external CA activity were calculated as (Tb/Ts–1)/FW, where Tb=the time it took for a blank sample with just assay buffer to drop 0.4 pH units, Ts=the time it took for the algal extract (total) or buffer with an intact thallus (external) to drop 0.4 pH units, and FW=fresh weight of the algae in grams. eCA activity was normalized to the dry weight of the thalli. The iCA activity was calculated by subtracting the eCA from the total CA activity (Hofmann et al. 2013).
+
+
+df.ca_stack = df.ca_stack %>% 
+  mutate(enzyme_activity = (blank_runtime_sec_0.4_pHunits / (sample_runtime_sec_0.4_pHunits - 1)) / dryweight_g, na.rm = TRUE)
+
+
+df.ca_stack = df.ca_stack %>% 
+  select(-sample_pH_change, -sample_runtime_sec_total, -sample_runtime_sec_0.4_pHunits, -sample_pH_units_persecond, -blank_pH_change, -blank_runtime_sec_total, -blank_runtime_sec_0.4_pHunits, -blank_pH_units_persecond, -sample_pH_start, -sample_pH_end, -blank_pH_start, -blank_pH_end, -dryweight_g, -na.rm)
+
+
+
+
+##### giving each enzyme its own column
+# use dcast to expand the 'enzyme_location' column, so that each enzyme has it's own column for each variable
+df.ca <- dcast(df.ca_stack, genus + treatment + metabolism + rep ~ enzyme_location, na.rm = TRUE) # dcast spread
+colnames(df.ca)[which(names(df.ca) == "CA")] <- "ca_tot_activity" # apply unique names
+colnames(df.ca)[which(names(df.ca) == "eCA")] <- "ca_ext_activity"
+
+# calculate internal ca activity
+df.ca = df.ca %>% 
+  mutate(ca_int_activity = ca_tot_activity - ca_ext_activity, na.rm = TRUE)
+
+df.ca = df.ca %>% 
+  select(-na.rm)
+```
+
+
+\pigmentcleaning
+```{r}
+# import pigment df
+df.pig_stack <- read.csv('/Users/tiff/Desktop/R Studio/UBC_Martone/MIMS_pigments.csv', stringsAsFactors = FALSE, header = TRUE)
+
+
+
+# fix spelling mistake
+names(df.pig_stack)[names(df.pig_stack) == 'wetweigh_g'] <- 'wetweight_g' # rename site columns
+
+# remove pan, crucible, and sediment combo weights not necessary here
+df.pig_stack = df.pig_stack %>% 
+  mutate(pigment_redtot_ugg = pigment_pce_ugg + pigment_apc_ugg) %>% 
+  mutate(pigment_tot_ugg = pigment_pce_ugg + pigment_apc_ugg + pigment_chla_ugg) %>% 
+  select(-solute_volume_red_extraction1, -solute_volume_red_extraction2, -solute_volume_green_extraction, -wetweight_g, -wetdry_conversion, -dryweight_g)
+
+# reorganize columns
+df.pig_stack <- df.pig_stack[c('genus','treatment','metabolism','rep','pigment_pc_ugg','pigment_pe_ugg','pigment_pce_ugg','pigment_apc_ugg','pigment_chla_ugg','pigment_redtot_ugg','pigment_tot_ugg')]
+```
+
+
+\joinDFs
+```{r}
+# join all dfs
+df.all <- right_join(df.mims, df.ca, by = c("genus","metabolism","treatment","rep"))
+df.all <- right_join(df.all, df.pig_stack, by = c("genus","metabolism","treatment","rep"))
+```
+
+
+
+
+
+Scatter plots
+```{r}
+df.all$genus = factor(df.all$genus, levels=c("Hymenena", "Opuntiella", "Plocamium", "Rhodymenia", "Odonthalia", "Osmundea", "Pyropia", "Schizymenia"))
+
+
+my.formula <- y ~ x # defined formula (linear regression) for stats labels on plot
+
+plot = ggplot(df.all, aes(CO2, O2, color = metabolism)) +
+  geom_point(size = 0, color = "White") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_jitter(alpha = 0.35, width = 0.3) +
+  geom_smooth(method = lm, formula = y~x, se = FALSE, fullrange = TRUE) +
+  #xlab("Mean sediment class (site)\n")+ylab("\nlog(Epiphyte biomass (g per plant, DW))") +
+  #theme(legend.position="none") +
+  stat_poly_eq(formula = my.formula, 
+               aes(label = paste(..rr.label.., sep = "~~~")), 
+               label.x.npc = 'right', label.y.npc = 'top', size = 4, parse = TRUE) +
+  stat_fit_glance(method = 'lm', method.args = list(formula = my.formula), geom = 'text',
+                  aes(label = paste("P-value = ", signif(..p.value.., digits = 3), sep = "")),
+                  label.x.npc = 'left', label.y.npc = 'top', size = 4) +
+  facet_wrap(genus~treatment)
+plot(plot)
+
+
+light <- df.all[df.all$run2=="Light",]
+
+
+ccm <- df.all[df.all$metabolism=="ccm",]
+nonccm <- df.all[df.all$metabolism=="nonccm",]
+
+ccm.high <- ccm[ccm$treatment=="High",]
+ccm.low <- ccm[ccm$treatment=="Low",]
+nonccm.high <- nonccm[nonccm$treatment=="High",]
+nonccm.low <- nonccm[nonccm$treatment=="Low",]
+
+
+stat = lm(O2 ~ CO2, data=ccm.low)
+anova(stat)
+summary(stat)
+```
+
+
+Barplots
+```{r}
+df.all$genus = factor(df.all$genus, levels=c("Hymenena", "Opuntiella", "Plocamium", "Rhodymenia", "Odonthalia", "Osmundea", "Pyropia", "Schizymenia"))
+
+
+p03=ggplot(df.all, aes(metabolism, ca_tot_activity, fill = metabolism))
+p03+stat_summary(fun.y=mean, geom="bar", position="dodge") +
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.90), width=0.2) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  #labs(y="Stipe RGR (d -1)", title="Stipe Elongation")+
+  facet_wrap(~treatment)
+
+
+stat = lm(CO2 ~ metabolism*treatment*run2, data=df.co2)
+anova(stat)
+
+TukeyHSD(aov(stat), conf=0.95)
+```
+
+
+Boxplots
+```{r}
+p04 <- ggplot(df.mims, aes(light, hco3, color = run2)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.3, width = 0.15) +
+  #theme(legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~genus)
+plot(p04)
+```
+
+
+
+
+
