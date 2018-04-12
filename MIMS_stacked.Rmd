@@ -21,48 +21,105 @@ theme_set(theme_classic())
 theme_set(theme_cowplot(font_size=12)) 
 ```
 
-\mimscleaning
+\mims \cleaning \stacked
 ```{r}
 # import dataframe(s)
-df.runs_stack <- read.csv('/Users/tiff/Desktop/R Studio/UBC_Martone/MIMS_runs_stacked.csv', stringsAsFactors = FALSE, header = TRUE)
-
-df.runs_stack <- within(df.runs_stack, rm(number))
+df.runs <- read.csv('/Users/tiff/Desktop/R Studio/UBC_Martone/MIMS_all_b.csv', stringsAsFactors = FALSE, header = TRUE)
 
 
-# calculate the slopes for each subset of within the data
-# this results in multiple data frames
-df.gas <- df.runs_stack %>%
-  group_by(genus, metabolism, treatment, rep, run1, run2, gas_id) %>%
-  do(tidy(lm(gas_mM ~ seconds, data = .))) %>%
+df.runs <- within(df.runs, rm(HCO3, K1a, K2a, K1b, K2b, K1, K2, H, K1_HCO3, K2_HCO3))
+
+
+
+
+# calculate slope for O2
+temp.o2 <- within(df.runs, rm(HCO3_mM, CO2_mM, DIC_mM, CO2_12_mM, CO2_13_mM, salinity, temperature, pH))
+
+temp.o2 <- temp.o2 %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(O2_mM ~ seconds, data = .))) %>%
   filter(term == "seconds")
-colnames(df.gas)[which(names(df.gas) == "estimate")] <- "gas_slope"
+colnames(temp.o2)[which(names(temp.o2) == "estimate")] <- "O2_slope"
 
-df.ph <- df.runs_stack %>%
-  group_by(genus, metabolism, treatment, rep, run1, run2, gas_id) %>%
-  do(tidy(lm(pH ~ seconds, data = .))) %>%
+
+
+# calculate slope for CO2
+temp.co2 <- within(df.runs, rm(HCO3_mM, O2_mM, DIC_mM, CO2_12_mM, CO2_13_mM, salinity, temperature, pH))
+
+temp.co2 <- temp.co2 %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(CO2_mM ~ seconds, data = .))) %>%
   filter(term == "seconds")
-colnames(df.ph)[which(names(df.ph) == "estimate")] <- "ph_slope"
+colnames(temp.co2)[which(names(temp.co2) == "estimate")] <- "CO2_slope"
+
+
+
+# calculate slope for HCO3
+temp.hco3 <- within(df.runs, rm(CO2_mM, O2_mM, DIC_mM, CO2_12_mM, CO2_13_mM, salinity, temperature, pH))
+
+temp.hco3 <- temp.hco3 %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(HCO3_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(temp.hco3)[which(names(temp.hco3) == "estimate")] <- "HCO3_slope"
+
+
+
+# calculate slope for DIC
+temp.DIC <- within(df.runs, rm(CO2_mM, O2_mM, HCO3_mM, CO2_12_mM, CO2_13_mM, salinity, temperature, pH))
+
+temp.DIC <- temp.DIC %>%
+  group_by(genus, metabolism, treatment, rep, run1, run2) %>%
+  do(tidy(lm(DIC_mM ~ seconds, data = .))) %>%
+  filter(term == "seconds")
+colnames(temp.DIC)[which(names(temp.DIC) == "estimate")] <- "DIC_slope"
+
+
+
+# remove extra columns
+temp.o2 <- within(temp.o2, rm(term, std.error, statistic, p.value))
+temp.co2 <- within(temp.co2, rm(term, std.error, statistic, p.value))
+temp.hco3 <- within(temp.hco3, rm(term, std.error, statistic, p.value))
+temp.DIC <- within(temp.DIC, rm(term, std.error, statistic, p.value))
+
+
+# join and temporary dfs
+df.mims <- left_join(temp.o2, temp.co2, by = c("genus","metabolism","treatment","rep","run1","run2"))
+df.mims <- left_join(df.mims, temp.hco3, by = c("genus","metabolism","treatment","rep","run1","run2"))
+df.mims <- left_join(df.mims, temp.DIC, by = c("genus","metabolism","treatment","rep","run1","run2"))
+
+
+rm(temp.co2); rm(temp.DIC); rm(temp.hco3); rm(temp.o2)
 
 
 
 
-# join mims dfs back into one
-df.mims_stack <- left_join(df.gas, df.ph, by = c("genus","metabolism","treatment","rep","run1","run2", "gas_id"))
+df.mims <- df.mims %>% 
+  mutate(O2.CO2 = O2_slope / CO2_slope) %>%
+  mutate(O2.HCO3 = O2_slope / HCO3_slope) %>% 
+  mutate(O2.DIC = O2_slope / DIC_slope)
 
-
-# remove uneccesary columns 
-df.mims_stack <- within(df.mims_stack, rm(term.x, std.error.x, statistic.x, p.value.x, term.y, std.error.y, statistic.y, p.value.y))
-
-
-
-
-
-##### giving each gas its own column
-# use dcast to expand the 'gas_id' column, so that each gas has it's own column for each variable
-df.mims_stack <- within(df.mims_stack, rm(ph_slope))
-
-df.mims <- dcast(df.mims_stack, genus + treatment + metabolism + rep + run1 + run2 ~ gas_id, na.rm = TRUE) # dcast spread
 ```
+
+
+\hmm
+```{r}
+
+#df.mims <- df.mims %>% 
+  #mutate(O2_abs = abs(O2_slope)) %>% 
+  #mutate(CO2_abs = abs(CO2_slope)) %>% 
+  #mutate(HCO3_abs = abs(HCO3_slope)) %>% 
+  #mutate(DIC_abs = abs(DIC_slope))
+
+
+
+#df.mims_stack <- data.frame(df.mims[1:6], stack(df.mims[7:ncol(df.mims)]))
+
+#colnames(df.mims_stack)[which(names(df.mims_stack) == "values")] <- "gas_slope"
+#colnames(df.mims_stack)[which(names(df.mims_stack) == "ind")] <- "gas_id"
+```
+
+
 
 
 \enzymescleaning
@@ -137,31 +194,38 @@ Scatter plots
 ```{r}
 df.all$genus = factor(df.all$genus, levels=c("Hymenena", "Opuntiella", "Plocamium", "Rhodymenia", "Odonthalia", "Osmundea", "Pyropia", "Schizymenia"))
 
-
-my.formula <- y ~ x # defined formula (linear regression) for stats labels on plot
-
-plot = ggplot(df.all, aes(CO2, O2, color = metabolism)) +
-  geom_point(size = 0, color = "White") +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  geom_jitter(alpha = 0.35, width = 0.3) +
-  geom_smooth(method = lm, formula = y~x, se = FALSE, fullrange = TRUE) +
-  #xlab("Mean sediment class (site)\n")+ylab("\nlog(Epiphyte biomass (g per plant, DW))") +
-  #theme(legend.position="none") +
-  stat_poly_eq(formula = my.formula, 
-               aes(label = paste(..rr.label.., sep = "~~~")), 
-               label.x.npc = 'right', label.y.npc = 'top', size = 4, parse = TRUE) +
-  stat_fit_glance(method = 'lm', method.args = list(formula = my.formula), geom = 'text',
-                  aes(label = paste("P-value = ", signif(..p.value.., digits = 3), sep = "")),
-                  label.x.npc = 'left', label.y.npc = 'top', size = 4) +
-  facet_wrap(genus~treatment)
-plot(plot)
-
-
 light <- df.all[df.all$run2=="Light",]
 
 
-ccm <- df.all[df.all$metabolism=="ccm",]
-nonccm <- df.all[df.all$metabolism=="nonccm",]
+pigment_pc_ugg
+
+my.formula <- y ~ x # defined formula (linear regression) for stats labels on plot
+
+
+
+plot = ggplot(light, aes(ca_int_activity, O2.DIC, color = metabolism)) +
+  geom_point(size = 2) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_smooth(method = lm, formula = y~x, se = FALSE, fullrange = TRUE) +
+  #xlab("Mean sediment class (site)\n")+ylab("\nlog(Epiphyte biomass (g per plant, DW))") +
+  #theme(legend.position="none") +
+  geom_text(aes(label=genus), size=2) +
+  stat_poly_eq(formula = my.formula, 
+               aes(label = paste(..rr.label.., sep = "~~~")), 
+               label.x.npc = 'right', label.y.npc = 'top', size = 2, parse = TRUE) +
+  stat_fit_glance(method = 'lm', method.args = list(formula = my.formula), geom = 'text',
+                  aes(label = paste("P-value = ", signif(..p.value.., digits = 3), sep = "")),
+                  label.x.npc = 'left', label.y.npc = 'top', size = 2) +
+  facet_wrap(~treatment)
+plot(plot)
+
+
+
+
+light <- df.mims[df.mims$run2=="Light",]
+
+ccm <- light[light$metabolism=="ccm",]
+nonccm <- light[light$metabolism=="nonccm",]
 
 ccm.high <- ccm[ccm$treatment=="High",]
 ccm.low <- ccm[ccm$treatment=="Low",]
@@ -169,7 +233,7 @@ nonccm.high <- nonccm[nonccm$treatment=="High",]
 nonccm.low <- nonccm[nonccm$treatment=="Low",]
 
 
-stat = lm(O2 ~ CO2, data=ccm.low)
+stat = lm(O2_slope ~ DIC_slope, data=ccm.high)
 anova(stat)
 summary(stat)
 ```
@@ -179,8 +243,11 @@ Barplots
 ```{r}
 df.all$genus = factor(df.all$genus, levels=c("Hymenena", "Opuntiella", "Plocamium", "Rhodymenia", "Odonthalia", "Osmundea", "Pyropia", "Schizymenia"))
 
+light <- df.all[df.all$run2=="Light",]
 
-p03=ggplot(df.all, aes(metabolism, ca_tot_activity, fill = metabolism))
+
+
+p03=ggplot(light, aes(metabolism, O2.DIC, fill = metabolism))
 p03+stat_summary(fun.y=mean, geom="bar", position="dodge") +
   stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.90), width=0.2) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
@@ -188,7 +255,17 @@ p03+stat_summary(fun.y=mean, geom="bar", position="dodge") +
   facet_wrap(~treatment)
 
 
-stat = lm(CO2 ~ metabolism*treatment*run2, data=df.co2)
+
+
+p03=ggplot(light, aes(metabolism, abs(O2.DIC), fill = metabolism))
+p03+stat_summary(fun.y=mean, geom="bar", position="dodge") +
+  stat_summary(fun.data=mean_se, geom="errorbar", position=position_dodge(width=0.90), width=0.2) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  #labs(y="Stipe RGR (d -1)", title="Stipe Elongation")+
+  facet_wrap(~treatment)
+
+
+stat = lm(O2.DIC ~ metabolism*treatment, data=light)
 anova(stat)
 
 TukeyHSD(aov(stat), conf=0.95)
